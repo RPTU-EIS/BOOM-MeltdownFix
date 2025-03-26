@@ -178,7 +178,7 @@ class LDQEntry(implicit p: Parameters) extends BoomBundle()(p)
 
   val executed            = Bool() // load sent to memory, reset by NACKs
   val succeeded           = Bool()
-	val failure             = Bool() // added by mofadiheh for meltdown fix
+  val failure             = Bool() // added by tojauch for Meltdown fix
   val order_fail          = Bool()
   val observed            = Bool()
 
@@ -318,7 +318,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
       ldq(ld_enq_idx).bits.executed        := false.B
       ldq(ld_enq_idx).bits.succeeded       := false.B
       ldq(ld_enq_idx).bits.order_fail      := false.B
-      ldq(ld_enq_idx).bits.failure         := false.B // added by mofadiheh for meltdown fix
+      ldq(ld_enq_idx).bits.failure         := false.B // added by tojauch for Meltdown fix
       ldq(ld_enq_idx).bits.observed        := false.B
       ldq(ld_enq_idx).bits.forward_std_val := false.B
 
@@ -478,7 +478,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
                                 RegNext(dtlb.io.miss_rdy)                     &&
                                 !store_needs_order                            &&
                                 (w == memWidth-1).B                           && // TODO: Is this best scheduling?
-                                !ldq_retry_e.bits.order_fail))                     // added by mofadiheh for meltdown fix
+                                !ldq_retry_e.bits.order_fail))
 
 
   // Can we retry a store addrgen that missed in the TLB
@@ -676,10 +676,10 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
 
   // TODO check for xcpt_if and verify that never happens on non-speculative instructions.
   val mem_xcpt_valids = RegNext(widthMap(w =>
-                     (pf_ld(w) || pf_st(w) || ae_ld(w) || ae_st(w) || ma_ld(w) || ma_st(w)) &&
-                     !io.core.exception &&
-                     !IsKilledByBranch(io.core.brupdate, exe_tlb_uop(w))))
-  val mem_xcpt_uops   = RegNext(widthMap(w => UpdateBrMask(io.core.brupdate, exe_tlb_uop(w))))
+    (pf_ld(w) || pf_st(w) || ae_ld(w) || ae_st(w) || ma_ld(w) || ma_st(w)) &&
+      !io.core.exception &&
+      Mux(will_fire_load_wakeup(w), !IsKilledByBranch(io.core.brupdate, ldq(ldq_wakeup_idx).bits.uop), !IsKilledByBranch(io.core.brupdate, exe_tlb_uop(w))))) // added by tojauch for Meltdown Fix
+  val mem_xcpt_uops   = RegNext(widthMap(w => Mux(will_fire_load_wakeup(w), UpdateBrMask(io.core.brupdate, ldq(ldq_wakeup_idx).bits.uop), UpdateBrMask(io.core.brupdate, exe_tlb_uop(w))))) // added by tojauch for Meltdown Fix
   val mem_xcpt_causes = RegNext(widthMap(w =>
     Mux(ma_ld(w), rocket.Causes.misaligned_load.U,
     Mux(ma_st(w), rocket.Causes.misaligned_store.U,
@@ -840,17 +840,19 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
       dmem_req(w).bits.uop.mem_signed := hella_req.signed
       dmem_req(w).bits.is_hella       := true.B
     }
+
     //##################################################################################################################
-    //modifications made by mofadiheh for meltdown fix
+    //modifications made by tojauch for Meltdown fix:
 
     val ldq_idx = Mux(will_fire_load_incoming(w), ldq_incoming_idx(w), ldq_retry_idx)
 
-    // set failure bit for PFs detected in TLB or MAs in incoming loads with priority
+    // set failure bit for PFs detected in TLB or MAs 
     when (will_fire_load_incoming(w) || will_fire_load_retry(w))
     {
       ldq(ldq_idx).bits.failure := ((will_fire_load_incoming(w) && (ma_ld(w) || pf_ld(w))) || (will_fire_load_retry(w) && pf_ld(w)))
     }
 
+    //##################################################################################################################
 
     //-------------------------------------------------------------
     // Write Addr into the LAQ/SAQ
@@ -1088,7 +1090,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
   val wb_forward_ld_addr  = RegNext(mem_forward_ld_addr)
   val wb_forward_stq_idx  = RegNext(mem_forward_stq_idx)
 
-  // added by mofadiheh for meltdown fix
+  // added by tojauch for Meltdown fix
   for (w <- 0 until memWidth) {
     when((fired_load_incoming(w) || fired_load_retry(w)) && mem_xcpt_valid) {
 
@@ -1511,7 +1513,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
       ldq(idx).bits.executed         := false.B
       ldq(idx).bits.succeeded        := false.B
       ldq(idx).bits.order_fail       := false.B
-      ldq(idx).bits.failure          := false.B //modification made by mofadiheh for meltdown fix
+      ldq(idx).bits.failure          := false.B // added by tojauch for Meltdown fix
       ldq(idx).bits.forward_std_val  := false.B
 
     }
