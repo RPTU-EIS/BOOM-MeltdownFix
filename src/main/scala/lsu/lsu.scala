@@ -41,7 +41,7 @@
 //    - ability to turn off things if VM is disabled
 //    - reconsider port count of the wakeup, retry stuff
 
-// Additional source code by Mohammad Rahmani Fadiheh, Tobias Jauch and Alex Wezel: 29/06/2022 (Meltdown Fix)
+// Additional source code by Mohammad Rahmani Fadiheh, Tobias Jauch, Alex Wezel and Philipp Schmitz: 04/04/2025 (Meltdown Fix)
 
 
 package boom.lsu
@@ -473,6 +473,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
                                ( ldq_retry_e.valid                            &&
                                  ldq_retry_e.bits.addr.valid                  &&
                                  ldq_retry_e.bits.addr_is_virtual             &&
+                                !ldq_retry_e.bits.failure                     && // added by tojauch for Meltdown Fix
                                 !p1_block_load_mask(ldq_retry_idx)            &&
                                 !p2_block_load_mask(ldq_retry_idx)            &&
                                 RegNext(dtlb.io.miss_rdy)                     &&
@@ -514,6 +515,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
                               !ldq_wakeup_e.bits.addr_is_virtual                       &&
                               !ldq_wakeup_e.bits.executed                              &&
                               !ldq_wakeup_e.bits.order_fail                            &&
+                              !ldq_wakeup_e.bits.failure                               && // added by tojauch for Meltdown Fix
                               !p1_block_load_mask(ldq_wakeup_idx)                      &&
                               !p2_block_load_mask(ldq_wakeup_idx)                      &&
                               !store_needs_order                                       &&
@@ -752,7 +754,7 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
 
 
   // defaults
-  io.dmem.brupdate         := io.core.brupdate
+  io.dmem.brupdate       := io.core.brupdate
   io.dmem.exception      := io.core.exception
   io.dmem.rob_head_idx   := io.core.rob_head_idx
   io.dmem.rob_pnr_idx    := io.core.rob_pnr_idx
@@ -842,14 +844,14 @@ class LSU(implicit p: Parameters, edge: TLEdgeOut) extends BoomModule()(p)
     }
 
     //##################################################################################################################
-    //modifications made by tojauch for Meltdown fix:
+    // modifications made by tojauch for Meltdown fix:
 
     val ldq_idx = Mux(will_fire_load_incoming(w), ldq_incoming_idx(w), ldq_retry_idx)
 
     // set failure bit for PFs detected in TLB or MAs 
     when (will_fire_load_incoming(w) || will_fire_load_retry(w))
     {
-      ldq(ldq_idx).bits.failure := ((will_fire_load_incoming(w) && (ma_ld(w) || pf_ld(w))) || (will_fire_load_retry(w) && pf_ld(w)))
+      ldq(ldq_idx).bits.failure := ((will_fire_load_incoming(w) && (ae_ld(w) || ma_ld(w) || pf_ld(w))) || (will_fire_load_retry(w) && (ae_ld(w) || pf_ld(w))))
     }
 
     //##################################################################################################################
